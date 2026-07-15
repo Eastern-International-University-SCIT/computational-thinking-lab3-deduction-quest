@@ -177,11 +177,16 @@ h3 { font-size: 22px; }
 .path-targets .path-cost small { color: rgba(255,255,255,.72); }
 .path-graph { overflow: hidden; padding: 8px; background: linear-gradient(145deg, #f8f5ec, #edf5f1); border: 1px solid var(--line); border-radius: 20px; }
 .path-graph svg { display: block; width: 100%; max-height: 590px; min-height: 390px; }
+.path-graph.spread-wide { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-color: #9bb3ae transparent; scrollbar-width: thin; }
+.path-graph.spread-wide svg { width: 130%; max-width: none; }
 .path-edge line { stroke: #9bada9; stroke-width: 4; stroke-linecap: round; transition: stroke .2s, stroke-width .2s; }
 .path-edge.selected line { stroke: var(--coral); stroke-width: 9; }
-.edge-weight circle { fill: var(--paper); stroke: #9bada9; stroke-width: 2; }
+.edge-weight-guide { stroke: #657d78; stroke-width: 2; stroke-dasharray: 5 4; stroke-linecap: round; opacity: .9; pointer-events: none; }
+.edge-weight-guide.selected { stroke: var(--coral); stroke-width: 2.5; }
+.edge-weight { pointer-events: none; filter: drop-shadow(0 1px 2px rgba(27,52,58,.18)); }
+.edge-weight circle { fill: var(--paper); stroke: #7f9691; stroke-width: 2; }
 .edge-weight text { fill: var(--ink); font-size: 14px; font-weight: 900; text-anchor: middle; }
-.path-edge.selected .edge-weight circle { fill: #fff0ec; stroke: var(--coral); }
+.edge-weight.selected circle { fill: #fff0ec; stroke: var(--coral); stroke-width: 3; }
 .path-vertex { cursor: pointer; outline: none; }
 .path-vertex > circle { fill: white; stroke: var(--navy); stroke-width: 4; transition: transform .16s, fill .16s; transform-box: fill-box; transform-origin: center; }
 .path-vertex:hover > circle, .path-vertex:focus-visible > circle { fill: #fff2c9; transform: scale(1.12); }

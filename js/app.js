@@ -479,27 +479,125 @@
     }
     return cost;
   }
+  function pathWeightPositions(puzzle, labelBounds = {left: 145, right: 655, top: 60, bottom: 535}) {
+    const placed = [], vertices = puzzle.graph.vertices;
+    const vertexById = new Map(vertices.map(vertex => [vertex.id, vertex]));
+    const alongFractions = [0, -.1, .1, -.18, .18, -.26, .26];
+    const perpendicularOffsets = [0, 24, -24, 38, -38, 52, -52];
+    const pointSegmentDistance = (point, start, end) => {
+      const dx = end.x - start.x, dy = end.y - start.y, lengthSquared = dx * dx + dy * dy;
+      if (!lengthSquared) return Math.hypot(point.x - start.x, point.y - start.y);
+      const amount = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+      return Math.hypot(point.x - (start.x + amount * dx), point.y - (start.y + amount * dy));
+    };
+    puzzle.graph.edges.forEach((edge, edgeIndex) => {
+      const from = vertexById.get(edge.from), to = vertexById.get(edge.to);
+      const dx = to.x - from.x, dy = to.y - from.y, length = Math.hypot(dx, dy) || 1;
+      const unitX = dx / length, unitY = dy / length, perpendicularX = -unitY, perpendicularY = unitX;
+      const midpoint = {x: (from.x + to.x) / 2, y: (from.y + to.y) / 2};
+      let best = null;
+      alongFractions.forEach(alongFraction => perpendicularOffsets.forEach(perpendicularOffset => {
+        const along = alongFraction * length;
+        const candidate = {
+          x: midpoint.x + unitX * along + perpendicularX * perpendicularOffset,
+          y: midpoint.y + unitY * along + perpendicularY * perpendicularOffset,
+        };
+        let score = Math.hypot(along, perpendicularOffset) * .2;
+        const outsideX = Math.max(0, labelBounds.left - candidate.x, candidate.x - labelBounds.right);
+        const outsideY = Math.max(0, labelBounds.top - candidate.y, candidate.y - labelBounds.bottom);
+        score += (outsideX * outsideX + outsideY * outsideY) * 10000;
+        placed.forEach(label => {
+          const distance = Math.hypot(candidate.x - label.x, candidate.y - label.y);
+          const overlap = Math.max(0, 48 - distance);
+          score += overlap * overlap * 5000;
+        });
+        vertices.forEach(vertex => {
+          const distance = Math.hypot(candidate.x - vertex.x, candidate.y - vertex.y);
+          const overlap = Math.max(0, 54 - distance);
+          score += overlap * overlap * 900;
+        });
+        puzzle.graph.edges.forEach((otherEdge, otherIndex) => {
+          if (otherIndex === edgeIndex) return;
+          const distance = pointSegmentDistance(candidate, vertexById.get(otherEdge.from), vertexById.get(otherEdge.to));
+          const overlap = Math.max(0, 22 - distance);
+          score += overlap * overlap * 35;
+        });
+        if (!best || score < best.score) best = {...candidate, score};
+      }));
+      placed.push({key: [edge.from, edge.to].sort().join('|'), x: best.x, y: best.y});
+    });
+    return new Map(placed.map(position => [position.key, position]));
+  }
+  function pathDisplayLayout(puzzle, levelNumber) {
+    const horizontalSpread = levelNumber >= 4 ? 1.3 : 1;
+    const centerX = 400, baseViewBoxWidth = 560;
+    const viewBoxWidth = baseViewBoxWidth * horizontalSpread;
+    const viewBoxX = centerX - viewBoxWidth / 2;
+    const displayVertices = puzzle.graph.vertices.map(vertex => ({
+      ...vertex,
+      x: centerX + (vertex.x - centerX) * horizontalSpread,
+    }));
+    return {
+      horizontalSpread,
+      viewBoxX,
+      viewBoxWidth,
+      labelBounds: {left: viewBoxX + 25, right: viewBoxX + viewBoxWidth - 25, top: 60, bottom: 535},
+      puzzle: {...puzzle, graph: {...puzzle.graph, vertices: displayVertices}},
+    };
+  }
+  function pathWeightGuide(from, to, position) {
+    const dx = to.x - from.x, dy = to.y - from.y, lengthSquared = dx * dx + dy * dy;
+    const amount = lengthSquared
+      ? Math.max(0, Math.min(1, ((position.x - from.x) * dx + (position.y - from.y) * dy) / lengthSquared))
+      : 0;
+    const edgePoint = {x: from.x + amount * dx, y: from.y + amount * dy};
+    const guideX = position.x - edgePoint.x, guideY = position.y - edgePoint.y;
+    const distance = Math.hypot(guideX, guideY);
+    if (distance <= 20) return null;
+    const labelClearance = 20;
+    return {
+      x1: edgePoint.x,
+      y1: edgePoint.y,
+      x2: position.x - guideX / distance * labelClearance,
+      y2: position.y - guideY / distance * labelClearance,
+    };
+  }
   function renderPathfinding() {
     const {level, puzzle} = currentPathPuzzle(), route = state.pathfinding.selected[puzzle.id] || [], feedback = state.pathfinding.feedback[puzzle.id];
     const optional = level.level >= 4, puzzleIndex = level.puzzles.findIndex(item => item.id === puzzle.id), cost = pathCost(puzzle, route) || 0;
+    const displayLayout = pathDisplayLayout(puzzle, level.level), displayPuzzle = displayLayout.puzzle;
     const routeEdges = new Set(route.slice(1).map((vertex, index) => [route[index], vertex].sort().join('|')));
     const levels = PATH_DATA.levels.map(item => {
       const solved = item.puzzles.filter(candidate => state.pathfinding.solved[candidate.id]).length, isOptional = item.level >= 4;
       return `<button class="level-button ${item.level === level.level ? 'active' : ''}" data-path-level="${item.level}"><span>${tr('level')} ${item.level}</span><span class="${isOptional ? 'optional-tag' : 'mini-status'}">${isOptional ? '★ ' : ''}${solved}/${item.puzzles.length}</span></button>`;
     }).join('');
     const dots = level.puzzles.map((item, index) => `<button class="puzzle-dot ${item.id === puzzle.id ? 'active' : ''} ${state.pathfinding.solved[item.id] ? 'solved' : ''}" data-path-puzzle="${item.id}" title="${tr('puzzle')} ${index + 1}">${index + 1}</button>`).join('');
-    const edges = puzzle.graph.edges.map(edge => {
-      const from = puzzle.graph.vertices.find(vertex => vertex.id === edge.from), to = puzzle.graph.vertices.find(vertex => vertex.id === edge.to);
-      const midX = (from.x + to.x) / 2, midY = (from.y + to.y) / 2, active = routeEdges.has([edge.from, edge.to].sort().join('|'));
-      return `<g class="path-edge ${active ? 'selected' : ''}"><line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"></line><g class="edge-weight" transform="translate(${midX} ${midY})"><circle r="17"></circle><text y="5">${edge.weight}</text></g></g>`;
+    const weightPositions = pathWeightPositions(displayPuzzle, displayLayout.labelBounds);
+    const edgeLines = displayPuzzle.graph.edges.map(edge => {
+      const from = displayPuzzle.graph.vertices.find(vertex => vertex.id === edge.from), to = displayPuzzle.graph.vertices.find(vertex => vertex.id === edge.to);
+      const key = [edge.from, edge.to].sort().join('|'), active = routeEdges.has(key);
+      return `<g class="path-edge ${active ? 'selected' : ''}" data-path-edge="${key}"><line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"></line></g>`;
     }).join('');
-    const vertices = puzzle.graph.vertices.map(vertex => {
+    const edgeGuides = displayPuzzle.graph.edges.map(edge => {
+      const from = displayPuzzle.graph.vertices.find(vertex => vertex.id === edge.from), to = displayPuzzle.graph.vertices.find(vertex => vertex.id === edge.to);
+      const key = [edge.from, edge.to].sort().join('|'), position = weightPositions.get(key), active = routeEdges.has(key);
+      const guide = pathWeightGuide(from, to, position);
+      return guide ? `<line class="edge-weight-guide ${active ? 'selected' : ''}" data-path-weight-guide="${key}" x1="${guide.x1.toFixed(1)}" y1="${guide.y1.toFixed(1)}" x2="${guide.x2.toFixed(1)}" y2="${guide.y2.toFixed(1)}" aria-hidden="true"></line>` : '';
+    }).join('');
+    const edgeWeights = displayPuzzle.graph.edges.map(edge => {
+      const key = [edge.from, edge.to].sort().join('|'), position = weightPositions.get(key), active = routeEdges.has(key);
+      return `<g class="edge-weight ${active ? 'selected' : ''}" data-path-weight="${key}" transform="translate(${position.x.toFixed(1)} ${position.y.toFixed(1)})"><circle r="18"></circle><text y="5">${edge.weight}</text></g>`;
+    }).join('');
+    const vertices = displayPuzzle.graph.vertices.map(vertex => {
       const index = route.indexOf(vertex.id), selected = index >= 0, endpoint = vertex.id === puzzle.startVertex ? 'start' : (vertex.id === puzzle.endVertex ? 'end' : '');
       return `<g class="path-vertex ${selected ? 'selected' : ''} ${endpoint}" data-path-vertex="${vertex.id}" tabindex="0" role="button" aria-label="Vertex ${vertex.label}"><circle cx="${vertex.x}" cy="${vertex.y}" r="25"></circle><text x="${vertex.x}" y="${vertex.y + 6}">${esc(vertex.label)}</text>${selected ? `<g class="route-order" transform="translate(${vertex.x + 22} ${vertex.y - 22})"><circle r="11"></circle><text y="4">${index + 1}</text></g>` : ''}</g>`;
     }).join('');
     const routeHtml = route.length ? route.map((vertex, index) => `<button type="button" class="route-step" data-path-truncate="${index}" title="${tr('pathUndo')}"><span>${index + 1}</span>${esc(vertex)}</button>`).join('<i>→</i>') : `<span class="muted">${tr('pathEmpty', {start: puzzle.startVertex})}</span>`;
-    const body = `<div class="workspace path-workspace"><aside class="side-panel"><p class="side-label">${tr('level')}</p><div class="level-list">${levels}</div><div class="side-divider"></div><p class="side-label">${tr('puzzle')}</p><div class="puzzle-dots path-puzzle-dots">${dots}</div><div class="side-divider"></div><p class="side-tip">${tr('optionalNote')}</p></aside><section class="play-panel"><div class="panel-top"><div><span class="eyebrow">${optionalLabel(optional)} · ${tr('level')} ${level.level}</span><h2>${tr('puzzle')} ${puzzleIndex + 1}/${level.puzzles.length}</h2><p>${tr('pathPrompt', {start: puzzle.startVertex, end: puzzle.endVertex})}</p></div>${state.pathfinding.solved[puzzle.id] ? '<span class="status-pill">✓ Solved</span>' : ''}</div><div class="path-targets"><div><small>${tr('pathStart')}</small><strong>${puzzle.startVertex}</strong></div><span>→</span><div><small>${tr('pathEnd')}</small><strong>${puzzle.endVertex}</strong></div><div class="path-cost"><small>${tr('pathCost')}</small><strong>${cost}</strong></div></div><div class="path-graph"><svg viewBox="120 35 560 525" role="img" aria-label="Weighted graph for ${esc(puzzle.id)}">${edges}${vertices}</svg></div><div class="path-route"><div><span class="side-label">${tr('pathSelected')}</span><div class="route-steps">${routeHtml}</div></div><div class="path-controls"><button class="button ghost" data-action="clear-path" ${route.length ? '' : 'disabled'}>${tr('clear')}</button><button class="button primary" data-action="check-path" ${route.at(-1) === puzzle.endVertex ? '' : 'disabled'}>${tr('check')}</button></div></div>${feedback ? `<div class="feedback ${feedback.good ? 'good' : 'bad'}">${feedback.text}</div>` : ''}<div class="puzzle-nav"><button class="button ghost" data-path-move="-1" ${puzzleIndex === 0 ? 'disabled' : ''}>← ${tr('previous')}</button><button class="button ghost" data-path-move="1" ${puzzleIndex === level.puzzles.length - 1 ? 'disabled' : ''}>${tr('next')} →</button></div></section></div>`;
+    const wideClass = displayLayout.horizontalSpread > 1 ? ' spread-wide' : '';
+    const body = `<div class="workspace path-workspace"><aside class="side-panel"><p class="side-label">${tr('level')}</p><div class="level-list">${levels}</div><div class="side-divider"></div><p class="side-label">${tr('puzzle')}</p><div class="puzzle-dots path-puzzle-dots">${dots}</div><div class="side-divider"></div><p class="side-tip">${tr('optionalNote')}</p></aside><section class="play-panel"><div class="panel-top"><div><span class="eyebrow">${optionalLabel(optional)} · ${tr('level')} ${level.level}</span><h2>${tr('puzzle')} ${puzzleIndex + 1}/${level.puzzles.length}</h2><p>${tr('pathPrompt', {start: puzzle.startVertex, end: puzzle.endVertex})}</p></div>${state.pathfinding.solved[puzzle.id] ? '<span class="status-pill">✓ Solved</span>' : ''}</div><div class="path-targets"><div><small>${tr('pathStart')}</small><strong>${puzzle.startVertex}</strong></div><span>→</span><div><small>${tr('pathEnd')}</small><strong>${puzzle.endVertex}</strong></div><div class="path-cost"><small>${tr('pathCost')}</small><strong>${cost}</strong></div></div><div class="path-graph${wideClass}" data-horizontal-spread="${displayLayout.horizontalSpread}"><svg viewBox="${displayLayout.viewBoxX} 35 ${displayLayout.viewBoxWidth} 525" role="img" aria-label="Weighted graph for ${esc(puzzle.id)}">${edgeLines}${edgeGuides}${edgeWeights}${vertices}</svg></div><div class="path-route"><div><span class="side-label">${tr('pathSelected')}</span><div class="route-steps">${routeHtml}</div></div><div class="path-controls"><button class="button ghost" data-action="clear-path" ${route.length ? '' : 'disabled'}>${tr('clear')}</button><button class="button primary" data-action="check-path" ${route.at(-1) === puzzle.endVertex ? '' : 'disabled'}>${tr('check')}</button></div></div>${feedback ? `<div class="feedback ${feedback.good ? 'good' : 'bad'}">${feedback.text}</div>` : ''}<div class="puzzle-nav"><button class="button ghost" data-path-move="-1" ${puzzleIndex === 0 ? 'disabled' : ''}>← ${tr('previous')}</button><button class="button ghost" data-path-move="1" ${puzzleIndex === level.puzzles.length - 1 ? 'disabled' : ''}>${tr('next')} →</button></div></section></div>`;
     app.innerHTML = shell('⌁', tr('pathfinding'), tr('pathfindingDesc'), body);
+    const wideGraph = app.querySelector('.path-graph.spread-wide');
+    if (wideGraph) wideGraph.scrollLeft = (wideGraph.scrollWidth - wideGraph.clientWidth) / 2;
   }
 
   function queenBoard(n) { return state.queens.boards[n] || (state.queens.boards[n] = []); }
